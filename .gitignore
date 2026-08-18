@@ -1,0 +1,15 @@
+# NP Mart - Git ignore rules
+# Prevents the .env file from being committed to GitHub
+# (keys must never be public - Netlify reads them from its own secure store)
+
+.env
+.env.local
+.env.*.local
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/

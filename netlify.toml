@@ -1,0 +1,32 @@
+# ─── NP MART – Netlify Configuration ───────────────────────────────────────
+# This file controls the build, redirects, and function settings.
+# DO NOT put secret keys here — use Netlify UI > Environment Variables instead.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[build]
+  # Since the whole site is a single HTML file (no npm build step),
+  # we publish the root of the repo directly.
+  publish = "."
+
+  # Tell Netlify where the serverless functions live.
+  functions = "netlify/functions"
+
+# Serve the AI Chef proxy at /api/ai-chef
+# The ai-chef.mjs function itself also declares   export const config = { path: "/api/ai-chef" }
+# so this redirect is a belt-and-suspenders fallback.
+[[redirects]]
+  from   = "/api/ai-chef"
+  to     = "/.netlify/functions/ai-chef"
+  status = 200
+
+# Optional: redirect plain HTTP → HTTPS (Netlify does this automatically,
+# but explicit is cleaner for SEO).
+[[redirects]]
+  from   = "http://npmarttest.netlify.app/*"
+  to     = "https://npmarttest.netlify.app/:splat"
+  status = 301
+  force  = true
+
+[functions]
+  # Use ES Modules runtime (required for .mjs files).
+  node_bundler = "esbuild"

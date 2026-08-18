@@ -28,10 +28,10 @@ const PER_ATTEMPT_MS = 6000;
    of these start failing, check https://openrouter.ai/models with the
    "free" filter and update this list. */
 const OPENROUTER_MODELS = [
-  "openrouter/free",
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "openai/gpt-oss-20b:free"
-];
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "google/gemma-4-26b-a4b-it:free"];
 
 /* Gemini models on the generateContent endpoint. */
 const GEMINI_MODELS = [

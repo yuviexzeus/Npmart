@@ -1444,27 +1444,6 @@ body.cart-open { overflow: hidden; }
 }
 .form-field input:focus, .form-field textarea:focus { border-color: var(--accent-green); }
 
-.delivery-zone-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.zone-radio-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 14px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.zone-radio-card.selected {
-  border-color: var(--accent-green);
-  background: var(--accent-green-light);
-}
-
 .cart-drawer-footer {
   padding: 16px 20px;
   padding-bottom: max(16px, calc(12px + env(safe-area-inset-bottom)));
@@ -2876,7 +2855,7 @@ body.cart-open { overflow: hidden; }
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 9997;
+  z-index: 10001;
   align-items: center;
   justify-content: center;
   padding: 16px;
@@ -3799,12 +3778,15 @@ html.os-ios .category-quick-strip {
             <label for="co-address">Delivery Address *</label>
             <textarea id="co-address" rows="2" required placeholder="House no, Street, Landmark..."></textarea>
           </div>
-          <div class="form-field">
-            <label>Select Delivery Location *</label>
-            <div id="zone-radio-options" class="delivery-zone-cards"></div>
+          <div class="form-field" style="display:flex; align-items:center; gap:8px; background:var(--accent-green-light); border-radius:10px; padding:9px 12px; margin-bottom:2px;">
+            <span style="font-size:16px;">🚚</span>
+            <span style="font-size:12px; font-weight:700; color:var(--accent-green-hover);">Delivering in Garhi, Partapur &amp; Ashapura</span>
           </div>
 
           <div class="bill-summary-card" style="margin-top:10px;">
+            <div id="co-savings-badge-box" class="cart-savings-badge" style="display:none; margin-bottom:8px;"></div>
+            <div class="bill-row"><span>Total MRP</span><span id="co-mrp-total">₹0</span></div>
+            <div id="co-savings-row" class="bill-row savings-row" style="display:none;"><span>Your Total Savings (Discount)</span><span id="co-savings-amount">-₹0</span></div>
             <div class="bill-row"><span>Items Subtotal</span><span id="co-bill-subtotal">₹0</span></div>
             <div class="bill-row"><span>Delivery Fee</span><span id="co-bill-delivery">₹0</span></div>
             <div class="bill-row total"><span>Final Payable</span><span id="co-bill-total">₹0</span></div>
@@ -19692,10 +19674,8 @@ const STORE_PHONE = "919829931779";
 const FREE_DELIVERY_THRESHOLD = 999;
 const PAGE_SIZE = 24;
 
-const DELIVERY_ZONES = [
-  { id: "garhi", label: "Garhi / Partapur", fee: 10, freeAboveThreshold: true },
-  { id: "ashapura", label: "Ashapura", fee: 20, freeAboveThreshold: false }
-];
+/* Flat delivery fee across Garhi, Partapur & Ashapura — free above threshold */
+const DELIVERY_FEE = 10;
 
 /* ── 3-TIER COMPLETE TAXONOMY DEFINITION ─── */
 const CATEGORIES = {
@@ -20292,7 +20272,6 @@ const state = {
   sort: "relevance",
   visibleCount: PAGE_SIZE,
   cart: {},
-  deliveryZone: DELIVERY_ZONES[0].id,
   isCartOpen: false,
   cartStep: "items"
 };
@@ -20419,9 +20398,8 @@ function getCartSubtotal(){
 function getDeliveryCharge(){
   const subtotal = getCartSubtotal();
   if (subtotal <= 0) return 0;
-  const zone = DELIVERY_ZONES.find(z => z.id === state.deliveryZone) || DELIVERY_ZONES[0];
-  if (zone.freeAboveThreshold && subtotal >= FREE_DELIVERY_THRESHOLD) return 0;
-  return zone.fee;
+  if (subtotal >= FREE_DELIVERY_THRESHOLD) return 0;
+  return DELIVERY_FEE;
 }
 
 function syncAllCartUI(){
@@ -21272,33 +21250,6 @@ function showCheckoutStep(){
   document.getElementById("cart-items-view").style.display = "none";
   document.getElementById("checkout-view").style.display = "flex";
   document.getElementById("cart-drawer-footer").style.display = "none";
-  renderDeliveryZones();
-  updateCheckoutSummary();
-}
-
-function renderDeliveryZones(){
-  const el = document.getElementById("zone-radio-options");
-  if (!el) return;
-  const subtotal = getCartSubtotal();
-
-  el.innerHTML = DELIVERY_ZONES.map(z => {
-    const isFree = z.freeAboveThreshold && subtotal >= FREE_DELIVERY_THRESHOLD;
-    const feeText = isFree ? "FREE" : "+" + formatINR(z.fee);
-    return `
-      <div class="zone-radio-card ${state.deliveryZone === z.id ? 'selected' : ''}" onclick="selectDeliveryZone('${z.id}')">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:700;">
-          <input type="radio" name="delivery_zone" value="${z.id}" ${state.deliveryZone === z.id ? 'checked' : ''} style="accent-color:var(--accent-green);" />
-          <span>${z.label}</span>
-        </label>
-        <span style="font-family:'IBM Plex Mono', monospace; font-weight:800; color:${isFree ? 'var(--accent-green)' : 'var(--text-muted)'};">${feeText}</span>
-      </div>
-    `;
-  }).join("");
-}
-
-function selectDeliveryZone(zoneId){
-  state.deliveryZone = zoneId;
-  renderDeliveryZones();
   updateCheckoutSummary();
 }
 
@@ -21322,9 +21273,9 @@ function updateCheckoutSummary(){
   const mrpEl = document.getElementById("co-mrp-total");
   const savRow = document.getElementById("co-savings-row");
   const savAmt = document.getElementById("co-savings-amount");
-  const itemsEl = document.getElementById("co-items-total");
-  const feeEl = document.getElementById("co-delivery-fee");
-  const totalEl = document.getElementById("co-final-total");
+  const itemsEl = document.getElementById("co-bill-subtotal");
+  const feeEl = document.getElementById("co-bill-delivery");
+  const totalEl = document.getElementById("co-bill-total");
 
   if (badgeEl) {
     if (totalSavings > 0) {
@@ -21355,13 +21306,11 @@ function buildWhatsAppMessage(name, phone, address){
   const subtotal = getCartSubtotal();
   const delivery = getDeliveryCharge();
   const total = subtotal + delivery;
-  const zone = DELIVERY_ZONES.find(z => z.id === state.deliveryZone) || DELIVERY_ZONES[0];
 
   let msg = `🛒 *NEW ORDER — NP Mart Partapur*\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━\n`;
   msg += `👤 *Customer:* ${name}\n`;
   msg += `📞 *Phone:* ${phone}\n`;
-  msg += `📍 *Area:* ${zone.label}\n`;
   msg += `🏠 *Address:* ${address}\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━\n`;
   msg += `📦 *ITEMS ORDERED:*\n`;
@@ -21370,7 +21319,7 @@ function buildWhatsAppMessage(name, phone, address){
   });
   msg += `━━━━━━━━━━━━━━━━━━━━\n`;
   msg += `Item Total: ${formatINR(subtotal)}\n`;
-  msg += `Delivery (${zone.label}): ${delivery === 0 ? 'FREE' : formatINR(delivery)}\n`;
+  msg += `Delivery Charge: ${delivery === 0 ? 'FREE' : formatINR(delivery)}\n`;
   msg += `*FINAL TOTAL: ${formatINR(total)}*\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━\n`;
   msg += `Please confirm order delivery. Thank you!`;
@@ -21577,16 +21526,20 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* â•â•â• ALL ENHANCED INTERACTION FEATURES â•â•â• */
-/* AI Chef can fall back across multiple API keys (add more here) AND
-   multiple models. If a key is exhausted/invalid, or a model is
-   unavailable, it tries the next combination automatically. */
-var OPENROUTER_API_KEY = "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";
-var GEMINI_API_KEYS = [
-  "AQ.Ab8RN6LxMXlc1tYLFzJhZcg059F3Nb-Ax1lZUMOiHf2-26Qu9w",
-  "AQ.Ab8RN6JTtKq07i0IJ4cbeHNK6FBYj-d481y3AV1B827vr6C9ng",
-  "AQ.Ab8RN6ItiX8dAL3B2MIs4ly0K_zBAdW_dLuFVaKXI53As6UUEw"
-];
-var GEMINI_MODELS_LIST = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+/* AI Chef talks to a server-side proxy (Netlify Function) so that no
+   API key is ever shipped to the browser. Never put a raw API key in
+   this file — anything here is public, and both Google and OpenRouter
+   auto-revoke keys they detect on public pages.
+   Provider keys live in Netlify env vars: OPENROUTER_API_KEY / GEMINI_API_KEY.
+   Function source: netlify/functions/ai-chef.mjs */
+var AI_CHEF_ENDPOINT = "/api/ai-chef";
+
+/* Set to true to print full provider diagnostics to the browser console. */
+var AI_CHEF_DEBUG = true;
+
+/* Records why the last AI call failed, so a failure is never silent.
+   Inspect with: npAiChefLastError */
+var npAiChefLastError = null;
 
 /* â”€â”€ LOGO POPOVER â”€â”€ */
 var npLogoMenuOpen = false;
@@ -22033,70 +21986,67 @@ function aiChefAddAllToCart(productIdsJson){
   } catch(e){ console.error(e); }
 }
 
+/* Calls the server-side proxy. Returns the raw model text, or null.
+   Unlike the old version, every failure is recorded in
+   npAiChefLastError and logged — nothing fails silently. */
 async function fetchGeminiWithFallback(promptText){
-  /* â”€â”€ 1. PRIMARY: OpenRouter AI with Free Live Router â”€â”€ */
-  if (typeof OPENROUTER_API_KEY !== "undefined" && OPENROUTER_API_KEY) {
-    var orModels = ["openrouter/free", "google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free", "openai/gpt-oss-20b:free"];
-    for (var m = 0; m < orModels.length; m++) {
-      try {
-        var orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + OPENROUTER_API_KEY,
-            "HTTP-Referer": "https://npmart.in",
-            "X-Title": "NP Mart AI Chef"
-          },
-          body: JSON.stringify({
-            model: orModels[m],
-            messages: [{ role: "user", content: promptText }],
-            temperature: 0.2,
-            max_tokens: 800
-          })
-        });
-        if (orRes.ok) {
-          var orData = await orRes.json();
-          if (orData && orData.choices && orData.choices[0] && orData.choices[0].message && orData.choices[0].message.content) {
-            return orData.choices[0].message.content;
-          }
+  npAiChefLastError = null;
+
+  var controller = new AbortController();
+  var timer = setTimeout(function(){ controller.abort(); }, 20000);
+
+  try {
+    var res = await fetch(AI_CHEF_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: promptText }),
+      signal: controller.signal
+    });
+
+    var raw = await res.text();
+    var data = null;
+    try { data = JSON.parse(raw); } catch(e){}
+
+    if (!res.ok || !data || !data.ok) {
+      npAiChefLastError = {
+        httpStatus: res.status,
+        error: (data && data.error) || "unexpected_response",
+        message: (data && data.message) || raw.slice(0, 300),
+        attempts: (data && data.attempts) || []
+      };
+      if (AI_CHEF_DEBUG) {
+        console.error("[AI Chef] proxy call failed:", npAiChefLastError);
+        if (res.status === 404) {
+          console.error(
+            "[AI Chef] 404 means the Netlify Function isn't deployed. " +
+            "Confirm netlify/functions/ai-chef.mjs is committed and the site " +
+            "was deployed from Git (drag-and-drop deploys do not build functions)."
+          );
         }
-      } catch(e) {
-        console.warn("OpenRouter model " + orModels[m] + " failed, trying next...", e);
+      }
+      return null;
+    }
+
+    if (AI_CHEF_DEBUG) {
+      console.info("[AI Chef] answered by " + data.provider + " / " + data.model);
+      if (data.attempts && data.attempts.length) {
+        console.warn("[AI Chef] providers skipped before success:", data.attempts);
       }
     }
-  }
+    return data.text;
 
-  /* â”€â”€ 2. SECONDARY: Direct Google Gemini API â”€â”€ */
-  if (typeof GEMINI_API_KEYS !== "undefined" && GEMINI_API_KEYS.length) {
-    for (var k = 0; k < GEMINI_API_KEYS.length; k++){
-      var apiKey = GEMINI_API_KEYS[k];
-      if (!apiKey) continue;
-      for (var i = 0; i < GEMINI_MODELS_LIST.length; i++){
-        var modelName = GEMINI_MODELS_LIST[i];
-        try {
-          var url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent";
-          var response = await fetch(url, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": apiKey
-            },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: promptText }] }]
-            })
-          });
-          if (response.ok) {
-            var data = await response.json();
-            if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0]) {
-              return data.candidates[0].content.parts[0].text;
-            }
-          }
-        } catch(err){}
-      }
-    }
+  } catch (err) {
+    npAiChefLastError = {
+      httpStatus: 0,
+      error: err && err.name === "AbortError" ? "client_timeout" : "network_error",
+      message: String((err && err.message) || err),
+      attempts: []
+    };
+    if (AI_CHEF_DEBUG) console.error("[AI Chef] request failed:", npAiChefLastError);
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return null;
 }
 
 function buildAiChefPrompt(userQuery){
@@ -22425,21 +22375,49 @@ async function handleAiChefSubmit(e){
 
   try {
     var parsed = null;
+    var usedLiveAI = false;
 
-    /* 1. Try Live Gemini API if available */
-    try {
-      var rawText = await fetchGeminiWithFallback(promptText);
-      if (rawText) {
-        var jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); } catch(err){}
+    /* 1. Live AI via the server-side proxy */
+    var rawText = await fetchGeminiWithFallback(promptText);
+    if (rawText) {
+      /* Strip a Markdown code fence if the model added one, then take
+         the outermost JSON object. */
+      var cleaned = String(rawText).replace(/```json/gi, "").replace(/```/g, "").trim();
+      var jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          parsed = JSON.parse(jsonMatch[0]);
+          usedLiveAI = true;
+        } catch(parseErr) {
+          npAiChefLastError = {
+            httpStatus: 200,
+            error: "json_parse_failed",
+            message: String(parseErr && parseErr.message || parseErr),
+            sample: cleaned.slice(0, 300)
+          };
+          if (AI_CHEF_DEBUG) console.error("[AI Chef] model returned unparseable JSON:", npAiChefLastError);
         }
+      } else {
+        npAiChefLastError = {
+          httpStatus: 200,
+          error: "no_json_in_response",
+          message: "Model replied without a JSON object.",
+          sample: cleaned.slice(0, 300)
+        };
+        if (AI_CHEF_DEBUG) console.error("[AI Chef] no JSON found in model reply:", npAiChefLastError);
       }
-    } catch(apiErr){}
+    }
 
-    /* 2. Seamless Built-in Culinary Intelligence Fallback */
+    /* 2. Built-in culinary knowledge base — offline safety net only */
     if (!parsed || !parsed.ingredients || !Array.isArray(parsed.ingredients) || parsed.ingredients.length === 0) {
+      usedLiveAI = false;
       parsed = getLocalRecipeFallback(userQuery, aiChefState.diet, aiChefState.mode, aiChefState.servings);
+      if (AI_CHEF_DEBUG) {
+        console.warn(
+          "[AI Chef] Live AI unavailable — showing built-in offline recipe instead. " +
+          "Reason:", npAiChefLastError || "unknown"
+        );
+      }
     }
 
     var freshItemsFromAI = (parsed.freshItems && Array.isArray(parsed.freshItems)) ? parsed.freshItems : [];
@@ -22524,7 +22502,12 @@ async function handleAiChefSubmit(e){
 
     var storeLabel = matchedProducts.length > 0 ? '<div style="font-size:12px; font-weight:700; color:var(--accent-green); margin-bottom:6px;">&#127963; In Stock at NP Mart:</div>' : '<div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">No packaged matching products found in store stock.</div>';
 
+    var modeBadge = usedLiveAI
+      ? ''
+      : '<div style="display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; color:var(--text-muted); background:var(--surface-2); border:1px solid var(--border); padding:2px 7px; border-radius:20px; margin-bottom:6px;">&#128246; Offline recipe mode</div>';
+
     loadingBubble.innerHTML = '<div style="font-family: inherit;">' +
+      modeBadge +
       '<div style="font-size:15px; font-weight:800; color:var(--text); margin-bottom:4px;">&#127858; ' + dishName + '</div>' +
       '<p style="margin: 0 0 10px 0; font-size:13px; color:var(--text-muted); line-height:1.4;">' + introText + '</p>' +
       storeLabel +
@@ -22534,7 +22517,7 @@ async function handleAiChefSubmit(e){
 
   } catch(err) {
     loadingBubble.innerHTML = "Sorry, I had trouble finding products for that dish right now. Please try searching directly in the store search bar!";
-    console.error(err);
+    console.error("[AI Chef] render failed:", err);
   }
 }
 
@@ -23490,7 +23473,7 @@ function openReceiptModal() {
   }
 
   var savings = Math.max(0, totalMrp - subtotal);
-  var deliveryFee = subtotal >= 999 ? 0 : 30;
+  var deliveryFee = getDeliveryCharge();
   var finalTotal = subtotal + deliveryFee;
   var now = new Date();
   var dateStr = now.toLocaleDateString() + " " + now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
@@ -23528,7 +23511,7 @@ function openReceiptModal() {
   html += '<div class="receipt-item-row" style="font-size:14px; font-weight:800;"><span>FINAL PAYABLE:</span><span>' + formatINR(finalTotal) + '</span></div>';
 
   html += '<div style="text-align:center; margin-top:14px; font-size:10px; color:#6B7280; border-top:1px dashed #9CA3AF; padding-top:8px;">' +
-    'Thank you for shopping local with NP Mart!<br/>Doorstep Delivery across Partapur & Garhi' +
+    'Thank you for shopping local with NP Mart!<br/>Doorstep Delivery across Garhi, Partapur &amp; Ashapura' +
   '</div>';
 
   content.innerHTML = html;

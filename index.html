@@ -1884,6 +1884,35 @@ body.cart-open { overflow: hidden; }
   padding: 8px 16px; background: var(--surface); border-top: 1px solid var(--border);
 }
 .ai-suggestions-row::-webkit-scrollbar { display: none; }
+.ai-chef-mode-tabs {
+  display: flex; gap: 6px; padding: 10px 14px 0;
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+}
+.ai-chef-mode-tab {
+  flex: 1; text-align: center; padding: 8px 6px; font-size: 12px; font-weight: 800;
+  color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.12);
+  border-radius: 10px 10px 0 0; cursor: pointer; transition: all 0.15s ease;
+  font-family: inherit;
+}
+.ai-chef-mode-tab.active { background: var(--surface-2); color: var(--accent-green); }
+.ai-chef-controls-row {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.ai-chef-control-group { display: flex; align-items: center; gap: 5px; }
+.ai-chef-control-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-faint); margin-right: 2px;
+}
+.ai-chef-chip {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+  padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: var(--text-muted);
+  cursor: pointer; transition: all 0.15s ease; font-family: inherit;
+}
+.ai-chef-chip.active {
+  background: rgba(16, 185, 129, 0.14); border-color: var(--accent-green); color: var(--accent-green);
+}
+
 .ai-sugg-pill {
   flex: 0 0 auto; background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700;
@@ -21548,8 +21577,16 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* â•â•â• ALL ENHANCED INTERACTION FEATURES â•â•â• */
-var GEMINI_API_KEY = "AQ.Ab8RN6ItiX8dAL3B2MIs4ly0K_zBAdW_dLuFVaKXI53As6UUEw";
-var GEMINI_MODELS_LIST = ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.1-flash-lite"];
+/* AI Chef can fall back across multiple API keys (add more here) AND
+   multiple models. If a key is exhausted/invalid, or a model is
+   unavailable, it tries the next combination automatically. */
+var OPENROUTER_API_KEY = "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";
+var GEMINI_API_KEYS = [
+  "AQ.Ab8RN6LxMXlc1tYLFzJhZcg059F3Nb-Ax1lZUMOiHf2-26Qu9w",
+  "AQ.Ab8RN6JTtKq07i0IJ4cbeHNK6FBYj-d481y3AV1B827vr6C9ng",
+  "AQ.Ab8RN6ItiX8dAL3B2MIs4ly0K_zBAdW_dLuFVaKXI53As6UUEw"
+];
+var GEMINI_MODELS_LIST = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
 /* â”€â”€ LOGO POPOVER â”€â”€ */
 var npLogoMenuOpen = false;
@@ -21709,6 +21746,86 @@ function closeAiChefModal(){
   var o = document.getElementById("ai-chef-modal-overlay");
   if (o) o.classList.remove("open");
 }
+
+/* â”€â”€ AI CHEF: MULTI-MODE STATE (Recipe / Pantry / Meal Plan) â”€â”€ */
+var aiChefState = { mode: "recipe", servings: 4, diet: "veg" };
+
+function setAiChefMode(mode){
+  aiChefState.mode = mode;
+  document.querySelectorAll(".ai-chef-mode-tab").forEach(function(btn){
+    btn.classList.toggle("active", btn.getAttribute("data-mode") === mode);
+  });
+  var input = document.getElementById("ai-chef-user-input");
+  var suggRow = document.getElementById("ai-chef-suggestions-row");
+  if (mode === "recipe") {
+    if (input) input.placeholder = "e.g. I want to make Paneer Tikka...";
+    if (suggRow) suggRow.style.display = "flex";
+  } else if (mode === "pantry") {
+    if (input) input.placeholder = "e.g. I have potatoes, besan, curd...";
+    if (suggRow) suggRow.style.display = "none";
+  } else if (mode === "mealplan") {
+    if (input) input.placeholder = "e.g. 3 day simple veg meal plan...";
+    if (suggRow) suggRow.style.display = "none";
+  }
+}
+
+function setAiChefServings(n){
+  aiChefState.servings = n;
+  document.querySelectorAll(".ai-chef-chip[data-servings]").forEach(function(btn){
+    btn.classList.toggle("active", parseInt(btn.getAttribute("data-servings"), 10) === n);
+  });
+}
+
+function setAiChefDiet(diet){
+  aiChefState.diet = diet;
+  document.querySelectorAll(".ai-chef-chip[data-diet]").forEach(function(btn){
+    btn.classList.toggle("active", btn.getAttribute("data-diet") === diet);
+  });
+}
+
+function startAiChefVoiceSearch(event){
+  if (event && event.stopPropagation) event.stopPropagation();
+  var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var micBtn = event && event.currentTarget;
+  if (!SpeechRec) {
+    alert("Voice Search is supported on Google Chrome, Edge & Android browsers. Please type your query instead!");
+    return;
+  }
+  if (npAiChefRecognition) {
+    try { npAiChefRecognition.abort(); } catch(e){}
+    npAiChefRecognition = null;
+    if (micBtn) micBtn.classList.remove("listening");
+    return;
+  }
+  try {
+    npAiChefRecognition = new SpeechRec();
+    npAiChefRecognition.lang = state.lang === "hi" ? "hi-IN" : "en-IN";
+    npAiChefRecognition.continuous = false;
+    npAiChefRecognition.interimResults = false;
+    if (micBtn) micBtn.classList.add("listening");
+
+    npAiChefRecognition.onresult = function(e){
+      if (e.results && e.results[0] && e.results[0][0]) {
+        var transcript = e.results[0][0].transcript.trim();
+        var input = document.getElementById("ai-chef-user-input");
+        if (transcript && input) input.value = transcript;
+      }
+    };
+    npAiChefRecognition.onerror = function(err){
+      console.warn("AI Chef voice search error:", err);
+    };
+    npAiChefRecognition.onend = function(){
+      if (micBtn) micBtn.classList.remove("listening");
+      npAiChefRecognition = null;
+    };
+    npAiChefRecognition.start();
+  } catch(err){
+    console.warn("AI Chef voice search failed to start:", err);
+    if (micBtn) micBtn.classList.remove("listening");
+    npAiChefRecognition = null;
+  }
+}
+var npAiChefRecognition = null;
 
 function askAiChefPreset(text){
   var inp = document.getElementById("ai-chef-user-input");
@@ -21917,43 +22034,94 @@ function aiChefAddAllToCart(productIdsJson){
 }
 
 async function fetchGeminiWithFallback(promptText){
-  for (var i = 0; i < GEMINI_MODELS_LIST.length; i++){
-    var modelName = GEMINI_MODELS_LIST[i];
-    try {
-      var url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + GEMINI_API_KEY;
-      var response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }]
-        })
-      });
-      if (response.ok) {
-        var data = await response.json();
-        if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0]) {
-          return data.candidates[0].content.parts[0].text;
+  /* â”€â”€ 1. PRIMARY: OpenRouter AI with Free Live Router â”€â”€ */
+  if (typeof OPENROUTER_API_KEY !== "undefined" && OPENROUTER_API_KEY) {
+    var orModels = ["openrouter/free", "google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free", "openai/gpt-oss-20b:free"];
+    for (var m = 0; m < orModels.length; m++) {
+      try {
+        var orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + OPENROUTER_API_KEY,
+            "HTTP-Referer": "https://npmart.in",
+            "X-Title": "NP Mart AI Chef"
+          },
+          body: JSON.stringify({
+            model: orModels[m],
+            messages: [{ role: "user", content: promptText }],
+            temperature: 0.2,
+            max_tokens: 800
+          })
+        });
+        if (orRes.ok) {
+          var orData = await orRes.json();
+          if (orData && orData.choices && orData.choices[0] && orData.choices[0].message && orData.choices[0].message.content) {
+            return orData.choices[0].message.content;
+          }
         }
+      } catch(e) {
+        console.warn("OpenRouter model " + orModels[m] + " failed, trying next...", e);
       }
-    } catch(err){
-      console.warn("Model " + modelName + " attempt failed, trying next...", err);
     }
   }
+
+  /* â”€â”€ 2. SECONDARY: Direct Google Gemini API â”€â”€ */
+  if (typeof GEMINI_API_KEYS !== "undefined" && GEMINI_API_KEYS.length) {
+    for (var k = 0; k < GEMINI_API_KEYS.length; k++){
+      var apiKey = GEMINI_API_KEYS[k];
+      if (!apiKey) continue;
+      for (var i = 0; i < GEMINI_MODELS_LIST.length; i++){
+        var modelName = GEMINI_MODELS_LIST[i];
+        try {
+          var url = "https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent";
+          var response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: promptText }] }]
+            })
+          });
+          if (response.ok) {
+            var data = await response.json();
+            if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0]) {
+              return data.candidates[0].content.parts[0].text;
+            }
+          }
+        } catch(err){}
+      }
+    }
+  }
+
   return null;
 }
 
-async function handleAiChefSubmit(e){
-  if (e && e.preventDefault) e.preventDefault();
-  var input = document.getElementById("ai-chef-user-input");
-  if (!input) return;
-  var userQuery = input.value.trim();
-  if (!userQuery) return;
-  input.value = "";
+function buildAiChefPrompt(userQuery){
+  var dietRule = "";
+  if (aiChefState.diet === "jain") {
+    dietRule = "5. JAIN DIET REQUIRED: Strictly NO onion, NO garlic, NO potato, and NO other root/underground vegetables in 'ingredients' or 'freshItems'. Suggest Jain-friendly substitutes (e.g. cabbage/capsicum instead of potato) where relevant.\n";
+  } else if (aiChefState.diet === "vegan") {
+    dietRule = "5. VEGAN DIET REQUIRED: Strictly NO dairy - no milk, paneer, curd, ghee, cheese, butter, or fresh cream, and NO honey. Suggest plant-based alternatives where relevant.\n";
+  } else if (aiChefState.diet === "rajasthani") {
+    dietRule = "5. RAJASTHANI STYLE PREFERRED: Favor authentic Rajasthani/Marwari cooking style - ghee-based, besan (gram flour) dishes, dry masalas, minimal tomato-onion gravy, traditional regional ingredients where appropriate.\n";
+  }
 
-  addAiMessage(userQuery, true);
-  var loadingBubble = addAiMessage('<div style="display:flex; align-items:center; gap:8px;"><span>&#129489;&#8205;&#127859;</span><span><strong>Searching our 15,808 stock for authentic ingredients...</strong></span></div>', false);
+  var modeTask;
+  if (aiChefState.mode === "pantry") {
+    modeTask = "MODE: PANTRY. The customer has told you what ingredients/items they ALREADY HAVE at home: \"" + userQuery + "\".\n" +
+      "Suggest ONE realistic Indian vegetarian dish they can make mostly using what they already have, then in 'ingredients'/'freshItems' list ONLY the ADDITIONAL items still needed to buy to complete that dish - do not repeat items they said they already have.\n";
+  } else if (aiChefState.mode === "mealplan") {
+    modeTask = "MODE: MEAL PLAN. The customer wants a meal plan: \"" + userQuery + "\" (cooking for " + aiChefState.servings + " people).\n" +
+      "Plan simple home-style vegetarian meals covering the request. In 'intro', briefly summarize the plan (e.g. \\\"Day 1: Dal Tadka + Rice. Day 2: Paneer Bhurji + Roti.\\\"). In 'ingredients' and 'freshItems', return the FULL CONSOLIDATED shopping list needed across the entire plan, deduplicated.\n";
+  } else {
+    modeTask = "MODE: RECIPE. The customer asks to cook/find ingredients for: \"" + userQuery + "\" (cooking for " + aiChefState.servings + " people).\n";
+  }
 
-  var promptText = "You are an expert Indian grocery culinary AI assistant for NP Mart (New Pushpdant Kirana Store), a 100% pure vegetarian supermarket in Partapur, Rajasthan.\n" +
-    "The customer asks to cook/find ingredients for: \"" + userQuery + "\".\n\n" +
+  return "You are an expert Indian grocery culinary AI assistant for NP Mart (New Pushpdant Kirana Store), a 100% pure vegetarian supermarket in Partapur, Rajasthan.\n" +
+    modeTask + "\n" +
     "NP MART STORE INVENTORY CATEGORIES:\n" +
     "- BAKERY: Pav Bread, Sandwich Bread, Pizza Base, Burger Bun, Kulcha, Vada Pav\n" +
     "- DAIRY: Amul Butter, Amul Malai Paneer, Cheese (Mozzarella, Block, Slices, Cubes), Amul Fresh Cream, Amul Ghee, Amul Taaza Milk, Amul Dahi\n" +
@@ -21969,30 +22137,309 @@ async function handleAiChefSubmit(e){
     "3. 'freshItems': Return an array of raw fresh produce/vegetables/herbs that are bought loose from the sabzi mandi.\n" +
     "   Examples: 'Potatoes', 'Tomatoes', 'Onions', 'Capsicum', 'Fresh Coriander Leaves', 'Green Chillies', 'Fresh Ginger', 'Fresh Garlic', 'Lemons'.\n" +
     "4. Return ONLY a valid JSON object in this format with NO Markdown wrapping:\n" +
+    dietRule +
     "{\n" +
     "  \"dish\": \"Dish Name\",\n" +
     "  \"intro\": \"Brief helpful cooking tip for the customer (1 sentence)\",\n" +
     "  \"ingredients\": [\"Pav Bread\", \"Amul Butter\", \"Pav Bhaji Masala\", \"Turmeric Powder\", \"Red Chilli Powder\", \"Cumin Powder\", \"Tata Salt\", \"Cooking Oil\"],\n" +
     "  \"freshItems\": [\"Potatoes\", \"Tomatoes\", \"Onions\", \"Capsicum\", \"Coriander Leaves\", \"Lemons\"]\n" +
     "}";
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   â”€â”€ BUILT-IN CULINARY KNOWLEDGE BASE (OFFLINE FALLBACK) â”€â”€
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+var BUILTIN_RECIPES = {
+  "pav bhaji": {
+    dish: "Authentic Mumbai Pav Bhaji",
+    intro: "Rich and spiced mashed vegetable bhaji served with butter-toasted ladi pav.",
+    ingredients: ["pav bhaji masala", "butter", "pav", "kashmiri chilli", "salt", "cooking oil"],
+    freshItems: ["Potatoes (Aloo)", "Tomatoes", "Onions (Pyaaz)", "Capsicum (Shimla Mirch)", "Fresh Coriander", "Lemon (Nimbu)"]
+  },
+  "paneer butter masala": {
+    dish: "Restaurant-Style Paneer Butter Masala",
+    intro: "Melt-in-mouth cottage cheese cubes simmered in a velvety buttery tomato & cashew gravy.",
+    ingredients: ["paneer", "butter", "fresh cream", "garam masala", "kasuri methi", "kashmiri chilli", "ginger garlic paste", "cooking oil", "salt"],
+    freshItems: ["Fresh Tomatoes", "Onions", "Ginger", "Garlic", "Coriander"]
+  },
+  "shahi paneer": {
+    dish: "Royal Shahi Paneer",
+    intro: "Delicate paneer cubes in a rich, mildly spiced cashew and cream gravy with aromatic cardamom.",
+    ingredients: ["paneer", "fresh cream", "butter", "green cardamom", "garam masala", "kasuri methi", "salt", "cow ghee"],
+    freshItems: ["Onions", "Ginger", "Garlic", "Coriander"]
+  },
+  "kadai paneer": {
+    dish: "Spicy Kadai Paneer",
+    intro: "Paneer tossed with freshly ground coriander, dry red chillies, crunchy bell peppers, and onion petals.",
+    ingredients: ["paneer", "coriander powder", "garam masala", "kashmiri chilli", "cooking oil", "salt", "kasuri methi"],
+    freshItems: ["Capsicum / Bell Peppers", "Onions", "Tomatoes", "Green Chillies", "Fresh Coriander"]
+  },
+  "palak paneer": {
+    dish: "Dhaba Style Palak Paneer",
+    intro: "Fresh spinach puree slow-cooked with cottage cheese, garlic, and authentic Indian spices.",
+    ingredients: ["paneer", "garam masala", "cumin seeds", "hing", "cooking oil", "butter", "salt"],
+    freshItems: ["Fresh Spinach (Palak)", "Garlic (Lehsun)", "Ginger", "Green Chillies", "Tomatoes"]
+  },
+  "matar paneer": {
+    dish: "Homestyle Matar Paneer",
+    intro: "Tender green peas and paneer cubes simmered in a fragrant onion-tomato gravy.",
+    ingredients: ["paneer", "garam masala", "turmeric", "kashmiri chilli", "coriander powder", "cooking oil", "salt", "kasuri methi"],
+    freshItems: ["Green Peas (Matar)", "Tomatoes", "Onions", "Ginger", "Green Chillies"]
+  },
+  "paneer tikka": {
+    dish: "Tandoori Paneer Tikka",
+    intro: "Marinated cottage cheese and crunchy bell peppers skewered and grilled to golden perfection.",
+    ingredients: ["paneer", "curd", "besan", "garam masala", "kashmiri chilli", "cooking oil", "salt", "kasuri methi"],
+    freshItems: ["Capsicum / Bell Peppers", "Onions", "Lemon", "Chaat Masala"]
+  },
+  "dal baati": {
+    dish: "Authentic Rajasthani Dal Baati Churma",
+    intro: "Crisp golden wheat baatis drenched in pure desi cow ghee, served with panchmel dal and sweet churma.",
+    ingredients: ["atta", "cow ghee", "toor dal", "moong dal", "sugar", "hing", "green cardamom", "mustard seeds", "turmeric", "salt"],
+    freshItems: ["Fresh Ginger", "Green Chillies", "Fresh Coriander", "Lemon"]
+  },
+  "dal tadka": {
+    dish: "Restaurant Dal Tadka & Jeera Rice",
+    intro: "Yellow toor dal tempered with double ghee tadka of cumin, garlic, and hing, paired with basmati rice.",
+    ingredients: ["toor dal", "basmati rice", "cow ghee", "cumin seeds", "hing", "turmeric", "red chilli", "salt"],
+    freshItems: ["Garlic", "Ginger", "Tomatoes", "Green Chillies", "Fresh Coriander"]
+  },
+  "dal fry": {
+    dish: "Homestyle Dal Fry & Rice",
+    intro: "Comforting yellow dal cooked with sauteed onions, tomatoes, and aromatic cumin ghee tempering.",
+    ingredients: ["toor dal", "basmati rice", "cow ghee", "cumin seeds", "hing", "turmeric", "red chilli", "salt"],
+    freshItems: ["Tomatoes", "Onions", "Garlic", "Green Chillies", "Coriander"]
+  },
+  "chhole": {
+    dish: "Amritsari Chhole Bhature",
+    intro: "Robust and tangy spiced chickpeas served with fluffy golden bhatures.",
+    ingredients: ["chhole masala", "maida", "cooking oil", "curd", "kasuri methi", "tea", "salt", "hing"],
+    freshItems: ["Kabuli Chana / Chickpeas", "Onions", "Tomatoes", "Ginger", "Green Chillies", "Coriander"]
+  },
+  "biryani": {
+    dish: "Shahi Veg Dum Biryani",
+    intro: "Fragrant long-grain basmati rice layered with spiced paneer, vegetables, saffron ghee, and whole spices.",
+    ingredients: ["basmati rice", "shahi biryani masala", "paneer", "cow ghee", "green cardamom", "curd", "cooking oil", "salt"],
+    freshItems: ["Carrots", "Beans", "Green Peas", "Mint (Pudina)", "Fried Onions", "Coriander"]
+  },
+  "pulao": {
+    dish: "Matar Pulao / Veg Pulao",
+    intro: "Aromatic basmati rice cooked with whole spices, green peas, and pure desi ghee.",
+    ingredients: ["basmati rice", "cow ghee", "cumin seeds", "green cardamom", "salt"],
+    freshItems: ["Green Peas (Matar)", "Carrots", "Onions", "Green Chillies", "Coriander"]
+  },
+  "poha": {
+    dish: "Indori / Rajasthani Kanda Poha",
+    intro: "Fluffy flattened rice tempered with mustard seeds, crunchy peanuts, turmeric, and fresh lime juice.",
+    ingredients: ["poha", "peanuts", "mustard seeds", "turmeric", "cooking oil", "sugar", "salt"],
+    freshItems: ["Onions (Pyaaz)", "Potatoes", "Green Chillies", "Fresh Coriander", "Lemon (Nimbu)", "Curry Leaves (Kadi Patta)"]
+  },
+  "maggi": {
+    dish: "Cheesy Street-Style Butter Maggi",
+    intro: "Tempting 2-minute noodles tossed with butter, cheese, and crunchy vegetables.",
+    ingredients: ["maggi noodles", "butter", "cheese", "salt"],
+    freshItems: ["Onions", "Tomatoes", "Capsicum", "Green Chillies"]
+  },
+  "chai": {
+    dish: "Kadak Masala Chai",
+    intro: "Rich spiced milk tea infused with cardamom, dry ginger, and premium tea leaves.",
+    ingredients: ["tea", "milk", "sugar", "green cardamom", "dry ginger"],
+    freshItems: ["Fresh Ginger (Adrak)", "Tulsi Leaves", "Mint Leaves"]
+  },
+  "tea": {
+    dish: "Kadak Masala Chai",
+    intro: "Rich spiced milk tea infused with cardamom, dry ginger, and premium tea leaves.",
+    ingredients: ["tea", "milk", "sugar", "green cardamom", "dry ginger"],
+    freshItems: ["Fresh Ginger (Adrak)", "Tulsi Leaves", "Mint Leaves"]
+  },
+  "pasta": {
+    dish: "Creamy Cheesy White/Red Sauce Pasta",
+    intro: "Penne pasta tossed in a rich mozzarella cheese and herb sauce.",
+    ingredients: ["pasta", "butter", "cheese", "tomato ketchup", "cooking oil", "salt"],
+    freshItems: ["Capsicum", "Sweet Corn", "Garlic", "Onions"]
+  },
+  "halwa": {
+    dish: "Desi Ghee Sooji / Atta Halwa",
+    intro: "Rich roasted semolina cooked with pure cow ghee, sugar syrup, and aromatic cardamom.",
+    ingredients: ["sooji", "cow ghee", "sugar", "green cardamom"],
+    freshItems: ["Cashews (Kaju)", "Almonds (Badam)", "Kishmish"]
+  },
+  "kadhi": {
+    dish: "Rajasthani Marwari Kadhi Pakora",
+    intro: "Tangy yogurt and gram flour curry tempered with hing, rai, and methi, loaded with crispy pakoras.",
+    ingredients: ["besan", "curd", "hing", "mustard seeds", "turmeric", "cooking oil", "salt"],
+    freshItems: ["Green Chillies", "Ginger", "Curry Leaves", "Fresh Coriander"]
+  },
+  "dhokla": {
+    dish: "Spongy Gujarati Nylon Khaman Dhokla",
+    intro: "Soft, steamed savoury gram flour cakes tempered with mustard seeds, green chillies, and sesame.",
+    ingredients: ["besan", "sugar", "mustard seeds", "cooking oil", "turmeric", "salt"],
+    freshItems: ["Green Chillies", "Lemon", "Fresh Coriander"]
+  },
+  "sambar": {
+    dish: "Traditional South Indian Sambar & Idli",
+    intro: "Tangy lentil and vegetable stew tempered with aromatic curry leaves and sambar spices.",
+    ingredients: ["toor dal", "sambar masala", "mustard seeds", "hing", "cooking oil", "salt"],
+    freshItems: ["Drumstick (Sahjan)", "Shallots/Onions", "Tomatoes", "Pumpkin/Lauki", "Tamarind", "Curry Leaves"]
+  },
+  "sandwich": {
+    dish: "Bombay Grilled Cheese Sandwich",
+    intro: "Triple layer vegetable sandwich stuffed with spiced potatoes, cheese, and grilled in butter.",
+    ingredients: ["bread", "butter", "cheese", "tomato ketchup", "salt"],
+    freshItems: ["Boiled Potatoes", "Cucumber", "Tomatoes", "Onions", "Green Chutney"]
+  },
+  "pizza": {
+    dish: "Homemade Cheesy Pan Pizza",
+    intro: "Crispy crust topped with seasoned tomato sauce, loads of mozzarella cheese, and vegetables.",
+    ingredients: ["cheese", "tomato ketchup", "butter", "salt"],
+    freshItems: ["Pizza Base / Bread", "Capsicum", "Onions", "Tomatoes", "Sweet Corn"]
+  },
+  "khichdi": {
+    dish: "Nutritious Moong Dal Khichdi",
+    intro: "Comforting one-pot meal of rice and yellow moong dal tempered with ghee and cumin.",
+    ingredients: ["basmati rice", "moong dal", "cow ghee", "cumin seeds", "hing", "turmeric", "salt"],
+    freshItems: ["Ginger", "Green Chillies"]
+  },
+  "upma": {
+    dish: "South Indian Sooji Rava Upma",
+    intro: "Wholesome roasted semolina upma with mustard seeds, curry leaves, and crunchy peanuts.",
+    ingredients: ["sooji", "peanuts", "mustard seeds", "cooking oil", "salt"],
+    freshItems: ["Onions", "Green Chillies", "Ginger", "Curry Leaves", "Lemon"]
+  }
+};
+
+function getLocalRecipeFallback(userQuery, diet, mode, servings){
+  var q = userQuery.toLowerCase().trim();
+
+  /* 1. PANTRY / CART SCAN MODE */
+  if (mode === "pantry") {
+    if (q.indexOf("atta") !== -1 && (q.indexOf("ghee") !== -1 || q.indexOf("sugar") !== -1)) {
+      return {
+        dish: "Desi Ghee Atta Halwa / Churma",
+        intro: "Using your Atta and Ghee at home, here are the extra items to make rich traditional Halwa or Churma:",
+        ingredients: ["sugar", "green cardamom", "cow ghee"],
+        freshItems: ["Cashews (Kaju)", "Almonds (Badam)"]
+      };
+    } else if (q.indexOf("paneer") !== -1) {
+      return {
+        dish: "Paneer Butter Masala (From Your Pantry)",
+        intro: "You already have Paneer! Here are the store spices and butter to make a restaurant-style gravy:",
+        ingredients: ["butter", "fresh cream", "garam masala", "kasuri methi", "kashmiri chilli"],
+        freshItems: ["Fresh Tomatoes", "Onions", "Ginger", "Garlic"]
+      };
+    } else if (q.indexOf("besan") !== -1) {
+      return {
+        dish: "Rajasthani Gatta Curry / Kadhi",
+        intro: "Using your Besan, here are the pantry essentials to cook authentic Marwari Gatta Curry:",
+        ingredients: ["curd", "hing", "mustard seeds", "coriander powder", "turmeric", "cooking oil"],
+        freshItems: ["Ginger", "Green Chillies", "Coriander"]
+      };
+    } else {
+      return {
+        dish: "Smart Recipe from Your Pantry",
+        intro: "Here are the top kitchen essentials to pair with what you have at home:",
+        ingredients: ["garam masala", "cow ghee", "cooking oil", "cumin seeds", "salt"],
+        freshItems: ["Onions", "Tomatoes", "Green Chillies", "Coriander"]
+      };
+    }
+  }
+
+  /* 2. MEAL PLAN MODE */
+  if (mode === "mealplan") {
+    return {
+      dish: "7-Day Healthy Vegetarian Family Meal Plan",
+      intro: "Complete weekly staple bundle for " + servings + " people (Breakfast, Lunch & Dinner):",
+      ingredients: ["atta", "basmati rice", "toor dal", "moong dal", "cooking oil", "cow ghee", "paneer", "poha", "tea", "sugar", "salt", "garam masala"],
+      freshItems: ["Weekly Vegetables (Sabzi Mandi Bundle)", "Potatoes & Onions", "Tomatoes & Chillies", "Fresh Milk & Dahi"]
+    };
+  }
+
+  /* 3. RECIPE LOOKUP */
+  var matchedKey = null;
+  for (var key in BUILTIN_RECIPES) {
+    if (q.indexOf(key) !== -1) {
+      matchedKey = key;
+      break;
+    }
+  }
+
+  /* Secondary keywords */
+  if (!matchedKey) {
+    if (q.indexOf("pav") !== -1 || q.indexOf("bhaji") !== -1) matchedKey = "pav bhaji";
+    else if (q.indexOf("paneer") !== -1 || q.indexOf("panir") !== -1) matchedKey = "paneer butter masala";
+    else if (q.indexOf("baati") !== -1 || q.indexOf("churma") !== -1) matchedKey = "dal baati";
+    else if (q.indexOf("dal") !== -1 || q.indexOf("daal") !== -1) matchedKey = "dal tadka";
+    else if (q.indexOf("chana") !== -1 || q.indexOf("chhole") !== -1) matchedKey = "chhole";
+    else if (q.indexOf("rice") !== -1 || q.indexOf("chawal") !== -1 || q.indexOf("biryani") !== -1) matchedKey = "biryani";
+    else if (q.indexOf("poha") !== -1) matchedKey = "poha";
+    else if (q.indexOf("noodles") !== -1 || q.indexOf("maggi") !== -1) matchedKey = "maggi";
+    else if (q.indexOf("chai") !== -1 || q.indexOf("tea") !== -1) matchedKey = "chai";
+    else if (q.indexOf("pasta") !== -1 || q.indexOf("macaroni") !== -1) matchedKey = "pasta";
+    else if (q.indexOf("sweet") !== -1 || q.indexOf("halwa") !== -1 || q.indexOf("mithai") !== -1) matchedKey = "halwa";
+    else if (q.indexOf("kadhi") !== -1) matchedKey = "kadhi";
+    else if (q.indexOf("dhokla") !== -1) matchedKey = "dhokla";
+    else if (q.indexOf("sambar") !== -1 || q.indexOf("idli") !== -1 || q.indexOf("dosa") !== -1) matchedKey = "sambar";
+    else if (q.indexOf("sandwich") !== -1 || q.indexOf("toast") !== -1) matchedKey = "sandwich";
+    else if (q.indexOf("pizza") !== -1) matchedKey = "pizza";
+    else if (q.indexOf("upma") !== -1) matchedKey = "upma";
+  }
+
+  var recipe = matchedKey ? JSON.parse(JSON.stringify(BUILTIN_RECIPES[matchedKey])) : {
+    dish: userQuery.charAt(0).toUpperCase() + userQuery.slice(1),
+    intro: "Here are the top grocery essentials in stock at NP Mart for " + userQuery + ":",
+    ingredients: ["garam masala", "cooking oil", "cow ghee", "cumin seeds", "salt", "turmeric"],
+    freshItems: ["Fresh Vegetables", "Tomatoes", "Green Chillies", "Fresh Coriander"]
+  };
+
+  /* 4. APPLY DIET FILTERS */
+  if (diet === "jain") {
+    recipe.freshItems = recipe.freshItems.filter(function(item){
+      var il = item.toLowerCase();
+      return il.indexOf("onion") === -1 && il.indexOf("garlic") === -1 && il.indexOf("potato") === -1 && il.indexOf("aloo") === -1 && il.indexOf("pyaaz") === -1 && il.indexOf("lehsun") === -1;
+    });
+    if (recipe.freshItems.indexOf("Capsicum / Cabbage (Jain friendly)") === -1) {
+      recipe.freshItems.push("Capsicum / Cabbage (Jain friendly)");
+    }
+  } else if (diet === "vegan") {
+    recipe.ingredients = recipe.ingredients.filter(function(ing){
+      return ing.indexOf("butter") === -1 && ing.indexOf("ghee") === -1 && ing.indexOf("cream") === -1 && ing.indexOf("paneer") === -1 && ing.indexOf("milk") === -1 && ing.indexOf("curd") === -1 && ing.indexOf("cheese") === -1;
+    });
+    if (recipe.ingredients.indexOf("cooking oil") === -1) recipe.ingredients.push("cooking oil");
+  }
+
+  return recipe;
+}
+
+async function handleAiChefSubmit(e){
+  if (e && e.preventDefault) e.preventDefault();
+  var input = document.getElementById("ai-chef-user-input");
+  if (!input) return;
+  var userQuery = input.value.trim();
+  if (!userQuery) return;
+  input.value = "";
+
+  addAiMessage(userQuery, true);
+  var loadingBubble = addAiMessage('<div style="display:flex; align-items:center; gap:8px;"><span>&#129489;&#8205;&#127859;</span><span><strong>Searching our 15,808 stock for authentic ingredients...</strong></span></div>', false);
+
+  var promptText = buildAiChefPrompt(userQuery);
 
   try {
-    var rawText = await fetchGeminiWithFallback(promptText);
-    if (!rawText) {
-      loadingBubble.innerHTML = "Sorry, our AI Chef server is momentarily busy. Please try again or search directly in our search bar above!";
-      return;
-    }
-
-    var jsonMatch = rawText.match(/\{[\s\S]*\}/);
     var parsed = null;
-    if (jsonMatch) {
-      try { parsed = JSON.parse(jsonMatch[0]); } catch(err){}
-    }
 
-    if (!parsed || !parsed.ingredients || !Array.isArray(parsed.ingredients)) {
-      var cleanOutput = rawText.replace(/```json|```/gi, "").trim();
-      loadingBubble.innerHTML = '<div style="font-family: inherit; font-size:13.5px; line-height:1.5;">' + cleanOutput + '</div>';
-      return;
+    /* 1. Try Live Gemini API if available */
+    try {
+      var rawText = await fetchGeminiWithFallback(promptText);
+      if (rawText) {
+        var jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { parsed = JSON.parse(jsonMatch[0]); } catch(err){}
+        }
+      }
+    } catch(apiErr){}
+
+    /* 2. Seamless Built-in Culinary Intelligence Fallback */
+    if (!parsed || !parsed.ingredients || !Array.isArray(parsed.ingredients) || parsed.ingredients.length === 0) {
+      parsed = getLocalRecipeFallback(userQuery, aiChefState.diet, aiChefState.mode, aiChefState.servings);
     }
 
     var freshItemsFromAI = (parsed.freshItems && Array.isArray(parsed.freshItems)) ? parsed.freshItems : [];
@@ -23266,14 +23713,37 @@ setTimeout(function(){
       <button class="ai-chef-close-btn" onclick="closeAiChefModal()" type="button" style="background:rgba(255,255,255,0.22); border:none; color:#FFF; width:34px; height:34px; border-radius:50%; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center;">&#10005;</button>
     </div>
 
+    <div class="ai-chef-mode-tabs" id="ai-chef-mode-tabs">
+      <button class="ai-chef-mode-tab active" data-mode="recipe" onclick="setAiChefMode('recipe')" type="button">&#127858; Recipe</button>
+      <button class="ai-chef-mode-tab" data-mode="pantry" onclick="setAiChefMode('pantry')" type="button">&#129380; Pantry</button>
+      <button class="ai-chef-mode-tab" data-mode="mealplan" onclick="setAiChefMode('mealplan')" type="button">&#128197; Meal Plan</button>
+    </div>
+
+    <div class="ai-chef-controls-row">
+      <div class="ai-chef-control-group">
+        <span class="ai-chef-control-label">Servings</span>
+        <button class="ai-chef-chip" data-servings="2" onclick="setAiChefServings(2)" type="button">2</button>
+        <button class="ai-chef-chip active" data-servings="4" onclick="setAiChefServings(4)" type="button">4</button>
+        <button class="ai-chef-chip" data-servings="6" onclick="setAiChefServings(6)" type="button">6</button>
+        <button class="ai-chef-chip" data-servings="8" onclick="setAiChefServings(8)" type="button">8</button>
+      </div>
+      <div class="ai-chef-control-group">
+        <span class="ai-chef-control-label">Diet</span>
+        <button class="ai-chef-chip active" data-diet="veg" onclick="setAiChefDiet('veg')" type="button">Veg</button>
+        <button class="ai-chef-chip" data-diet="jain" onclick="setAiChefDiet('jain')" type="button">Jain</button>
+        <button class="ai-chef-chip" data-diet="vegan" onclick="setAiChefDiet('vegan')" type="button">Vegan</button>
+        <button class="ai-chef-chip" data-diet="rajasthani" onclick="setAiChefDiet('rajasthani')" type="button">Rajasthani</button>
+      </div>
+    </div>
+
     <div id="ai-chef-messages" class="ai-chef-chat-body">
-      <div class="ai-msg-bubble ai-msg-bot">
+      <div class="ai-msg-bubble ai-msg-bot" id="ai-chef-welcome-msg">
         &#128075; <strong>Namaste!</strong> I am your <strong>NP Mart AI Chef &amp; Product Finder</strong>.<br/><br/>
         Tell me what you want to cook (e.g. <em>&ldquo;I want to make Pav Bhaji&rdquo;</em> or <em>&ldquo;Ingredients for Dal Tadka&rdquo;</em>), and I will find the exact matching grocery items in our 15,808 stock for you!
       </div>
     </div>
 
-    <div class="ai-suggestions-row">
+    <div class="ai-suggestions-row" id="ai-chef-suggestions-row">
       <button class="ai-sugg-pill" onclick="askAiChefPreset('I want to make Pav Bhaji')" type="button">&#127858; Pav Bhaji</button>
       <button class="ai-sugg-pill" onclick="askAiChefPreset('Ingredients for Paneer Butter Masala')" type="button">&#129472; Paneer Butter Masala</button>
       <button class="ai-sugg-pill" onclick="askAiChefPreset('Ingredients for Dal Tadka')" type="button">&#127858; Dal Tadka</button>
@@ -23283,6 +23753,7 @@ setTimeout(function(){
 
     <form class="ai-chef-input-bar" onsubmit="handleAiChefSubmit(event)">
       <input id="ai-chef-user-input" class="ai-chef-input" type="text" placeholder="e.g. I want to make Paneer Tikka..." autocomplete="off" />
+      <button class="voice-search-btn" onclick="startAiChefVoiceSearch(event)" type="button" title="Voice Search (बोलकर बताएं)">&#127908;&#65039;</button>
       <button class="ai-chef-send-btn" type="submit" aria-label="Send">&#10148;</button>
     </form>
   </div>
